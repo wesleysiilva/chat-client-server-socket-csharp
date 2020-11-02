@@ -26,7 +26,7 @@ namespace Chat {
     public frmChat() {
       InitializeComponent();
 
-      //Localize local IP
+      //Localizes local IP
       IPAddress[] localIP = Dns.GetHostAddresses(Dns.GetHostName());
 
       foreach (IPAddress address in localIP) {
@@ -67,6 +67,7 @@ namespace Chat {
       STW = new StreamWriter(client.GetStream());
       STW.AutoFlush = true;
       backgroundWorker1.RunWorkerAsync();
+      backgroundWorker1.WorkerSupportsCancellation = true;
       backgroundWorker2.WorkerSupportsCancellation = true;
     }
 
@@ -94,26 +95,43 @@ namespace Chat {
 
     private void backgroundWorker1_DoWork(object sender, DoWorkEventArgs e) {
       while (client.Connected) {
+        if (this.backgroundWorker1.CancellationPending) {
+          e.Cancel = true;
+          return;
+        }
         //Monitoring the receiveds messages
         try {
           recieve = STR.ReadLine();
-          this.txtChat.Invoke(new MethodInvoker(delegate () {
-            if (TpChat == EnumTpChat.enClient) {
-              this.txtChat.AppendText("Server: " + recieve);
-            } else {
-              this.txtChat.AppendText("Client: " + recieve);
-            }            
-            this.txtChat.AppendText(Environment.NewLine);
-          }));
-
+          if (recieve.ToUpper() != "FIM") {
+            if (InvokeRequired) {
+              this.txtChat.Invoke(new MethodInvoker(delegate () {
+                if (TpChat == EnumTpChat.enClient) {
+                  this.txtChat.AppendText("Server: " + recieve);
+                } else {
+                  this.txtChat.AppendText("Client: " + recieve);
+                }
+                this.txtChat.AppendText(Environment.NewLine);
+              }));
+            }
+          } else {
+            CloseConnection();
+          }
           recieve = "";
         } catch (Exception a) {
-          MessageBox.Show(a.Message.ToString());
+          MessageBox.Show("Par desconectado");
+          CloseConnection();
+          //MessageBox.Show(a.Message.ToString());
         }
       }
     }
 
     private void backgroundWorker2_DoWork(object sender, DoWorkEventArgs e) {
+      
+      if (this.backgroundWorker2.CancellationPending) {
+        e.Cancel = true;
+        return;
+      }
+
       //Sends message to the pair
       if (client.Connected) {
         STW.WriteLine  (TextToSend);
@@ -136,31 +154,47 @@ namespace Chat {
       if (this.txtMessage.Text.Trim() != "") {
         //Removes white spaces arround text
         TextToSend = this.txtMessage.Text.Trim();
-        backgroundWorker2.RunWorkerAsync();
+
+        if (TextToSend.ToUpper() != "FIM") {
+          backgroundWorker2.RunWorkerAsync();
+        } else {
+          CloseConnection();
+        }
       }
       this.txtMessage.Text = "";
     }
     private void btnConnect_Click(object sender, EventArgs e) {
-      this.txtChat.Enabled = true;
-      this.txtMessage.Enabled = true;
       switch (this.TpChat) {
-        case EnumTpChat.enServer:          
+        case EnumTpChat.enServer:
+          this.Text = "Chat com Cliente";
           this.txtChat.AppendText ( "Aguardando conexão com o cliente. Inicie uma nova instância do exe como cliente.");
           this.txtChat.AppendText(Environment.NewLine);
           this.StartServer();
-          this.txtChat.AppendText ("Cliente conectado");
-          this.txtChat.AppendText(Environment.NewLine);
+          if (client.Connected) {
+            this.txtChat.AppendText("Cliente conectado");
+          }
           break;
 
         case EnumTpChat.enClient:
           this.Text = "Chat com Servidor";
-          this.ConnectToServer();
-          this.txtChat.AppendText("Conectado com o servidor");
+          this.txtChat.AppendText("Conectando com servidor.");
           this.txtChat.AppendText(Environment.NewLine);
+          this.ConnectToServer();
+          if (client.Connected) {
+            this.txtChat.AppendText("Conectado com o servidor");
+
+          } else {
+            MessageBox.Show("Conecte o servidor primeiramente");
+          }
           break;
       }
-      this.btnConnect.Enabled = false;
-      this.btnSendMessage.Enabled = true;
+      if (client.Connected) {
+        this.txtChat.AppendText(Environment.NewLine);
+        this.btnConnect.Enabled = false;
+        this.btnSendMessage.Enabled = true;
+        this.txtMessage.Enabled = true;
+        this.txtChat.Enabled = true;
+      }
     }
 
     private void txtChat_KeyPress(object sender, KeyPressEventArgs e) {
@@ -177,6 +211,17 @@ namespace Chat {
         this.txtMessage.Text = this.txtMessage.Text.Replace("\n","");
         this.txtMessage.Text = this.txtMessage.Text.Replace("\r", "");
       }
+    }
+    private void CloseConnection() {
+      if (this.TpChat == EnumTpChat.enServer) {
+        backgroundWorker1.CancelAsync();
+      } else {
+        backgroundWorker2.CancelAsync();
+      }
+      client.Close();
+      STR.Close();
+      STW.Close();
+      Application.Exit();
     }
   }
 }
